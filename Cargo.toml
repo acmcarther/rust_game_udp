@@ -1,0 +1,11 @@
+[package]
+name = "game_udp"
+version = "0.1.0"
+authors = ["Alex McArther <acmcarther@gmail.com>"]
+
+[dependencies]
+time = "*"
+byteorder = "*"
+
+[dependencies.tap]
+git = "https://github.com/acmcarther/rust_tap"
