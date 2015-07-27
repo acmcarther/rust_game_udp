@@ -4,11 +4,10 @@ extern crate tap;
 extern crate time;
 
 pub mod types;
+pub mod packet_types;
 mod constants;
 mod helpers;
 mod errors;
-mod packet_splitting;
-mod packet_building;
 mod ack;
 
 use std::net::{SocketAddr, UdpSocket};
@@ -23,28 +22,18 @@ use errors::{socket_bind_err, socket_recv_err, socket_send_err};
 use types::{
   IOHandles,
   Network,
-  RawSocketPayload,
-  SocketPayload,
-  SequencedSocketPayload,
-  SequencedAckedSocketPayload,
+};
+use packet_types::{
+  RawPacket,
+  Packet,
+  SequencedPacket,
+  SequencedAckedPacket,
   PacketWithTries
 };
 use constants::{
   UDP_MARKER,
   PACKET_DROP_TIME,
   MAX_RESEND_ATTEMPTS
-};
-
-use packet_splitting::{
-  strip_marker,
-  strip_sequence,
-  strip_acks,
-};
-
-use packet_building::{
-  add_sequence_number,
-  add_acks,
-  serialize
 };
 
 use ack::PeerAcks;
@@ -82,7 +71,7 @@ pub fn start_network(addr: SocketAddr) -> Network {
         .map(|packet_with_tries: PacketWithTries| {
           let old_packet = packet_with_tries.packet;
           let tries = packet_with_tries.tries;
-          let payload = SocketPayload {addr: old_packet.addr, bytes: old_packet.bytes};
+          let payload = Packet {addr: old_packet.addr, bytes: old_packet.bytes};
           deliver_packet(Ok(payload), &send_attempted_tx, &send_socket, &mut seq_num_map, &ack_map, tries + 1);
         })
         .collect::<Vec<()>>();    // TODO: Remove collect
@@ -131,17 +120,17 @@ pub fn start_network(addr: SocketAddr) -> Network {
 
       let payload_result = recv_socket.recv_from(&mut buf)
         .map_err(socket_recv_err)
-        .map(|(_, socket_addr)| RawSocketPayload {addr: socket_addr, bytes: buf.to_vec()})
+        .map(|(_, socket_addr)| RawPacket {addr: socket_addr, bytes: buf.to_vec()})
         .map(starts_with_marker);
 
       let _ = payload_result.map(|possible_payload| {
         possible_payload
-          .map(strip_marker)
-          .map(strip_sequence)
-          .map(strip_acks)
+          .map(|packet| packet.strip_marker())
+          .map(|packet| packet.strip_sequence())
+          .map(|packet| packet.strip_acks())
           .tap(|packet| delete_acked_packets(&packet, &mut packets_awaiting_ack))
           .tap(|packet| received_packet_tx.send((packet.addr, packet.seq_num)))
-          .map(|payload| recv_tx.send(SocketPayload{addr: payload.addr, bytes: payload.bytes}))
+          .map(|payload| recv_tx.send(Packet{addr: payload.addr, bytes: payload.bytes}))
       });
     }
   });
@@ -156,7 +145,7 @@ fn update_acks(received_packet_rx: &Receiver<(SocketAddr, u16)>, ack_map: &mut H
     .collect::<Vec<()>>();    // TODO: Remove collect
 }
 
-fn starts_with_marker(payload: RawSocketPayload) -> Option<RawSocketPayload> {
+fn starts_with_marker(payload: RawPacket) -> Option<RawPacket> {
   if &payload.bytes[0..3] == UDP_MARKER {
     Some(payload)
   } else {
@@ -170,7 +159,7 @@ fn increment_seq_number(seq_num_map: &mut HashMap<SocketAddr, u16>, addr: Socket
   count.clone()
 }
 
-fn delete_acked_packets(packet: &SequencedAckedSocketPayload, packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedSocketPayload, PreciseTime, i32)>) {
+fn delete_acked_packets(packet: &SequencedAckedPacket, packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, PreciseTime, i32)>) {
   let ack_num = packet.ack_num;
   let ack_field = packet.ack_field;
   let past_acks = (0..32).map(|bit_idx| {
@@ -190,8 +179,8 @@ fn delete_acked_packets(packet: &SequencedAckedSocketPayload, packets_awaiting_a
 }
 
 fn deliver_packet(
-  packet_result: Result<SocketPayload, RecvError>,
-  send_attempted_tx: &Sender<(SequencedAckedSocketPayload, PreciseTime, i32)>,
+  packet_result: Result<Packet, RecvError>,
+  send_attempted_tx: &Sender<(SequencedAckedPacket, PreciseTime, i32)>,
   send_socket: &UdpSocket,
   seq_num_map: &mut HashMap<SocketAddr, u16>,
   ack_map: &HashMap<SocketAddr, PeerAcks>,
@@ -199,20 +188,20 @@ fn deliver_packet(
   ) {
   let _ =
     packet_result
-      .map(|raw_payload: SocketPayload| {
+      .map(|raw_payload: Packet| {
         let addr = raw_payload.addr.clone();
         (raw_payload, increment_seq_number(seq_num_map, addr))
       })
-      .map(|(raw_payload, seq_num)| add_sequence_number(raw_payload, seq_num))
-      .map(|raw_payload: SequencedSocketPayload| {
+      .map(|(raw_payload, seq_num)| raw_payload.add_sequence_number(seq_num))
+      .map(|raw_payload: SequencedPacket| {
         let default = PeerAcks{ack_num: 0, ack_field: 0}; // TODO: remove this when we dont need it
         let ack_data = ack_map.get(&raw_payload.addr).unwrap_or(&default);
         (raw_payload, ack_data.ack_num, ack_data.ack_field) // Fake ack_num for now
       })
-      .map(|(payload, ack_num, ack_field)| add_acks(payload, ack_num, ack_field))
+      .map(|(payload, ack_num, ack_field)| payload.add_acks(ack_num, ack_field))
       .tap(|final_payload| send_attempted_tx.send((final_payload.clone(), PreciseTime::now(), prior_attempts)))
-      .map(serialize)
-      .map(|raw_payload: RawSocketPayload| send_socket.send_to(raw_payload.bytes.as_slice(), raw_payload.addr))
+      .map(|packet| packet.serialize())
+      .map(|raw_payload: RawPacket| send_socket.send_to(raw_payload.bytes.as_slice(), raw_payload.addr))
       .map(|send_res| send_res.map_err(socket_send_err));
 }
 

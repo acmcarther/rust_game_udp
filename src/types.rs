@@ -1,17 +1,12 @@
 pub use self::types::{
   IOHandles,
   Network,
-  RawSocketPayload,
-  SocketPayload,
-  SequencedSocketPayload,
-  SequencedAckedSocketPayload,
-  PacketWithTries,
 };
 
 mod types {
   use std::thread::JoinHandle;
   use std::sync::mpsc::{Receiver, Sender};
-  use std::net::SocketAddr;
+  use packet_types::Packet;
 
   pub struct IOHandles {
     pub send_handle: JoinHandle<()>,
@@ -19,42 +14,8 @@ mod types {
   }
 
   pub struct Network {
-    pub send_channel: Sender<SocketPayload>,
-    pub recv_channel: Receiver<SocketPayload>,
+    pub send_channel: Sender<Packet>,
+    pub recv_channel: Receiver<Packet>,
     pub thread_handles: IOHandles
   }
-
-  #[derive(Clone)]
-  pub struct RawSocketPayload {
-    pub addr: SocketAddr,
-    pub bytes: Vec<u8>
-  }
-
-  #[derive(Clone)]
-  pub struct SocketPayload {
-    pub addr: SocketAddr,
-    pub bytes: Vec<u8>
-  }
-
-  #[derive(Clone)]
-  pub struct SequencedSocketPayload {
-    pub addr: SocketAddr,
-    pub seq_num: u16,
-    pub bytes: Vec<u8>
-  }
-
-  #[derive(Clone)]
-  pub struct SequencedAckedSocketPayload {
-    pub addr: SocketAddr,
-    pub seq_num: u16,
-    pub ack_num: u16,
-    pub ack_field: u32,
-    pub bytes: Vec<u8>
-  }
-
-  pub struct PacketWithTries {
-    pub packet: SequencedAckedSocketPayload,
-    pub tries: i32
-  }
-
 }
