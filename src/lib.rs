@@ -130,7 +130,7 @@ pub fn start_network(addr: SocketAddr) -> Network {
           .map(|packet| packet.strip_acks())
           .tap(|packet| delete_acked_packets(&packet, &mut packets_awaiting_ack))
           .tap(|packet| received_packet_tx.send((packet.addr, packet.seq_num)))
-          .map(|payload| recv_tx.send(Packet{addr: payload.addr, bytes: payload.bytes}))
+          .map(|packet| recv_tx.send(Packet {addr: packet.addr, bytes: packet.bytes} ))
       });
     }
   });
