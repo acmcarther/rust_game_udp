@@ -9,7 +9,7 @@ mod helpers;
 mod errors;
 mod packet_splitting;
 mod packet_building;
-mod ack_math;
+mod ack;
 
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::mpsc::{channel, Sender, Receiver, RecvError};
@@ -22,7 +22,6 @@ use time::{Duration, PreciseTime};
 use errors::{socket_bind_err, socket_recv_err, socket_send_err};
 use types::{
   IOHandles,
-  PeerAcks,
   Network,
   RawSocketPayload,
   SocketPayload,
@@ -48,9 +47,9 @@ use packet_building::{
   serialize
 };
 
-use helpers::try_recv_all;
+use ack::PeerAcks;
 
-use ack_math::update_peer_acks;
+use helpers::try_recv_all;
 
 type OwnAcks = (SocketAddr, u16, u32);
 type DroppedPacket = (SocketAddr, u16);
@@ -219,5 +218,5 @@ fn deliver_packet(
 
 fn update_ack_map(addr: SocketAddr, seq_num: u16, ack_map: &mut HashMap<SocketAddr, PeerAcks>) {
   let peer_acks = ack_map.entry(addr).or_insert(PeerAcks { ack_num: 0, ack_field: 0 });
-  update_peer_acks(seq_num, peer_acks);
+  peer_acks.add_seq_num(seq_num);
 }

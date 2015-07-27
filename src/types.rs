@@ -1,7 +1,6 @@
 pub use self::types::{
   IOHandles,
   Network,
-  PeerAcks,
   RawSocketPayload,
   SocketPayload,
   SequencedSocketPayload,
@@ -23,12 +22,6 @@ mod types {
     pub send_channel: Sender<SocketPayload>,
     pub recv_channel: Receiver<SocketPayload>,
     pub thread_handles: IOHandles
-  }
-
-  #[derive(Debug)]
-  pub struct PeerAcks {
-    pub ack_num: u16,
-    pub ack_field: u32
   }
 
   #[derive(Clone)]
