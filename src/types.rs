@@ -6,6 +6,7 @@ pub use self::types::{
   SocketPayload,
   SequencedSocketPayload,
   SequencedAckedSocketPayload,
+  PacketWithTries,
 };
 
 mod types {
@@ -56,6 +57,11 @@ mod types {
     pub ack_num: u16,
     pub ack_field: u32,
     pub bytes: Vec<u8>
+  }
+
+  pub struct PacketWithTries {
+    pub packet: SequencedAckedSocketPayload,
+    pub tries: i32
   }
 
 }

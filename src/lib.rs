@@ -25,11 +25,13 @@ use types::{
   RawSocketPayload,
   SocketPayload,
   SequencedSocketPayload,
-  SequencedAckedSocketPayload
+  SequencedAckedSocketPayload,
+  PacketWithTries
 };
 use constants::{
   UDP_MARKER,
-  PACKET_DROP_TIME
+  PACKET_DROP_TIME,
+  MAX_RESEND_ATTEMPTS
 };
 
 type OwnAcks = (SocketAddr, u16, u32);
@@ -64,11 +66,15 @@ pub fn start_network(addr: SocketAddr) -> Network {
       //let acks = try_recv_all(&ack_rx);
       try_recv_all(&dropped_packet_rx)
         .into_iter()
-        .map(|final_payload: SequencedAckedSocketPayload| SocketPayload {addr: final_payload.addr, bytes: final_payload.bytes})
-        .map(|raw_payload| deliver_packet(Ok(raw_payload), &send_attempted_tx, &send_socket, &mut seq_num_map, &ack_map))
+        .map(|packet_with_tries: PacketWithTries| {
+          let old_packet = packet_with_tries.packet;
+          let tries = packet_with_tries.tries;
+          let payload = SocketPayload {addr: old_packet.addr, bytes: old_packet.bytes};
+          deliver_packet(Ok(payload), &send_attempted_tx, &send_socket, &mut seq_num_map, &ack_map, tries + 1);
+        })
         .collect::<Vec<()>>();    // TODO: Remove collect
 
-      deliver_packet(send_rx.recv(), &send_attempted_tx, &send_socket, &mut seq_num_map, &ack_map);
+      deliver_packet(send_rx.recv(), &send_attempted_tx, &send_socket, &mut seq_num_map, &ack_map, 0);
     }
   });
 
@@ -83,12 +89,12 @@ pub fn start_network(addr: SocketAddr) -> Network {
       //   Get keys first to sate the borrow checker
       let dropped_packet_keys: Vec<(SocketAddr, u16)> =
         packets_awaiting_ack.iter()
-          .filter(|&(_, &(_, timestamp))| {
+          .filter(|&(_, &(_, timestamp, _))| {
             let timestamp: PreciseTime = timestamp; // Compiler why?
             let time_elapsed: Duration = timestamp.to(now);
             time_elapsed.num_seconds() > PACKET_DROP_TIME
           })
-          .map(|(key, &(_, _))| {
+          .map(|(key, &(_, _, _))| {
             let key: &(SocketAddr, u16) = key; // Compiler why?
             key.clone()
           }).collect();
@@ -97,15 +103,16 @@ pub fn start_network(addr: SocketAddr) -> Network {
         .map(|key| packets_awaiting_ack.remove(&key))
         .filter(|result| result.is_some())
         .map(|result| result.unwrap())
-        .map(|(packet, _)| {let _ = dropped_packet_tx.send(packet);}).collect::<Vec<()>>(); // TODO: Remove collect
+        .filter(|&(_,_,tries)| tries < MAX_RESEND_ATTEMPTS)
+        .map(|(packet, _, tries)| {let _ = dropped_packet_tx.send(PacketWithTries{packet: packet, tries: tries});}).collect::<Vec<()>>(); // TODO: Remove collect
 
       // Add all new sent packets packets_awaiting_ack
       try_recv_all(&send_attempted_rx)
         .into_iter()
-        .map(|(sent_packet, timestamp)| {
+        .map(|(sent_packet, timestamp, attempts)| {
           packets_awaiting_ack.insert(
             (sent_packet.addr.clone(), sent_packet.seq_num.clone()),
-            (sent_packet, timestamp)
+            (sent_packet, timestamp, attempts)
           );
         }).collect::<Vec<()>>();   // TODO: Get rid of this collect
 
@@ -205,7 +212,7 @@ fn try_recv_all<T>(ack_rx: &Receiver<T>) -> Vec<T> {
     .collect()
 }
 
-fn delete_acked_packets(packet: &SequencedAckedSocketPayload, packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedSocketPayload, PreciseTime)>) {
+fn delete_acked_packets(packet: &SequencedAckedSocketPayload, packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedSocketPayload, PreciseTime, i32)>) {
   let ack_num = packet.ack_num;
   let ack_field = packet.ack_field;
   let past_acks = (0..32).map(|bit_idx| {
@@ -226,10 +233,11 @@ fn delete_acked_packets(packet: &SequencedAckedSocketPayload, packets_awaiting_a
 
 fn deliver_packet(
   packet_result: Result<SocketPayload, RecvError>,
-  send_attempted_tx: &Sender<(SequencedAckedSocketPayload, PreciseTime)>,
+  send_attempted_tx: &Sender<(SequencedAckedSocketPayload, PreciseTime, i32)>,
   send_socket: &UdpSocket,
   seq_num_map: &mut HashMap<SocketAddr, u16>,
-  ack_map: &HashMap<SocketAddr, PeerAcks>
+  ack_map: &HashMap<SocketAddr, PeerAcks>,
+  prior_attempts: i32
   ) {
   let _ =
     packet_result
@@ -244,7 +252,7 @@ fn deliver_packet(
         (raw_payload, ack_data.ack_num, ack_data.ack_field) // Fake ack_num for now
       })
       .map(|(payload, ack_num, ack_field)| add_acks(payload, ack_num, ack_field))
-      .tap(|final_payload| send_attempted_tx.send((final_payload.clone(), PreciseTime::now())))
+      .tap(|final_payload| send_attempted_tx.send((final_payload.clone(), PreciseTime::now(), prior_attempts)))
       .map(serialize)
       .map(|raw_payload: RawSocketPayload| send_socket.send_to(raw_payload.bytes.as_slice(), raw_payload.addr))
       .map(|send_res| send_res.map_err(socket_send_err));
