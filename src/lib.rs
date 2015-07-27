@@ -12,7 +12,7 @@ mod packet_building;
 mod ack_math;
 
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::mpsc::{channel, Sender, RecvError};
+use std::sync::mpsc::{channel, Sender, Receiver, RecvError};
 use std::collections::HashMap;
 use std::thread;
 
@@ -76,10 +76,7 @@ pub fn start_network(addr: SocketAddr) -> Network {
     let mut seq_num_map = HashMap::new();
     let mut ack_map = HashMap::new();
     loop {
-      try_recv_all(&received_packet_rx)
-        .into_iter()
-        .map(|(addr, seq_num)| update_ack_map(addr, seq_num, &mut ack_map))
-        .collect::<Vec<()>>();    // TODO: Remove collect
+      update_acks(&received_packet_rx, &mut ack_map);
 
       try_recv_all(&dropped_packet_rx)
         .into_iter()
@@ -151,6 +148,13 @@ pub fn start_network(addr: SocketAddr) -> Network {
   });
   let io_handles = IOHandles { send_handle: send_handle, recv_handle: recv_handle };
   Network { send_channel: send_tx, recv_channel: recv_rx, thread_handles: io_handles }
+}
+
+fn update_acks(received_packet_rx: &Receiver<(SocketAddr, u16)>, ack_map: &mut HashMap<SocketAddr, PeerAcks>) {
+  try_recv_all(&received_packet_rx)
+    .into_iter()
+    .map(|(addr, seq_num)| update_ack_map(addr, seq_num, ack_map))
+    .collect::<Vec<()>>();    // TODO: Remove collect
 }
 
 fn starts_with_marker(payload: RawSocketPayload) -> Option<RawSocketPayload> {
