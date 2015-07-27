@@ -85,38 +85,8 @@ pub fn start_network(addr: SocketAddr) -> Network {
     let mut packets_awaiting_ack = HashMap::new();
     loop {
       let mut buf = [0; 256];
-
-      let now = PreciseTime::now();
-      // Notify send thread of dropped packets
-      //   Get keys first to sate the borrow checker
-      let dropped_packet_keys: Vec<(SocketAddr, u16)> =
-        packets_awaiting_ack.iter()
-          .filter(|&(_, &(_, timestamp, _))| {
-            let timestamp: PreciseTime = timestamp; // Compiler why?
-            let time_elapsed: Duration = timestamp.to(now);
-            time_elapsed.num_seconds() > PACKET_DROP_TIME
-          })
-          .map(|(key, &(_, _, _))| {
-            let key: &(SocketAddr, u16) = key; // Compiler why?
-            key.clone()
-          }).collect();
-
-      dropped_packet_keys.iter()
-        .map(|key| packets_awaiting_ack.remove(&key))
-        .filter(|result| result.is_some())
-        .map(|result| result.unwrap())
-        .filter(|&(_,_,tries)| tries < MAX_RESEND_ATTEMPTS)
-        .map(|(packet, _, tries)| {let _ = dropped_packet_tx.send(PacketWithTries{packet: packet, tries: tries});}).collect::<Vec<()>>(); // TODO: Remove collect
-
-      // Add all new sent packets packets_awaiting_ack
-      try_recv_all(&send_attempted_rx)
-        .into_iter()
-        .map(|(sent_packet, timestamp, attempts)| {
-          packets_awaiting_ack.insert(
-            (sent_packet.addr.clone(), sent_packet.seq_num.clone()),
-            (sent_packet, timestamp, attempts)
-          );
-        }).collect::<Vec<()>>();   // TODO: Get rid of this collect
+      notify_dropped_packets(&mut packets_awaiting_ack, &dropped_packet_tx);
+      add_sent_packets_to_ack_waiting(&send_attempted_rx, &mut packets_awaiting_ack);
 
       let payload_result = recv_socket.recv_from(&mut buf)
         .map_err(socket_recv_err)
@@ -208,4 +178,40 @@ fn deliver_packet(
 fn update_ack_map(addr: SocketAddr, seq_num: u16, ack_map: &mut HashMap<SocketAddr, PeerAcks>) {
   let peer_acks = ack_map.entry(addr).or_insert(PeerAcks { ack_num: 0, ack_field: 0 });
   peer_acks.add_seq_num(seq_num);
+}
+
+fn notify_dropped_packets(packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, PreciseTime, i32)>, dropped_packet_tx: &Sender<PacketWithTries>){
+  let now = PreciseTime::now();
+  // Notify send thread of dropped packets
+  //   Get keys first to sate the borrow checker
+  let dropped_packet_keys: Vec<(SocketAddr, u16)> =
+    packets_awaiting_ack.iter()
+      .filter(|&(_, &(_, timestamp, _))| {
+        let timestamp: PreciseTime = timestamp; // Compiler why?
+        let time_elapsed: Duration = timestamp.to(now);
+        time_elapsed.num_seconds() > PACKET_DROP_TIME
+      })
+      .map(|(key, &(_, _, _))| {
+        let key: &(SocketAddr, u16) = key; // Compiler why?
+        key.clone()
+      }).collect();
+
+  dropped_packet_keys.iter()
+    .map(|key| packets_awaiting_ack.remove(&key))
+    .filter(|result| result.is_some())
+    .map(|result| result.unwrap())
+    .filter(|&(_,_,tries)| tries < MAX_RESEND_ATTEMPTS)
+    .map(|(packet, _, tries)| {let _ = dropped_packet_tx.send(PacketWithTries{packet: packet, tries: tries});}).collect::<Vec<()>>(); // TODO: Remove collect
+}
+
+fn add_sent_packets_to_ack_waiting(send_attempted_rx: &Receiver<(SequencedAckedPacket, PreciseTime, i32)>, packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, PreciseTime, i32)>) {
+  // Add all new sent packets packets_awaiting_ack
+  try_recv_all(&send_attempted_rx)
+    .into_iter()
+    .map(|(sent_packet, timestamp, attempts)| {
+      packets_awaiting_ack.insert(
+        (sent_packet.addr.clone(), sent_packet.seq_num.clone()),
+        (sent_packet, timestamp, attempts)
+      );
+    }).collect::<Vec<()>>();   // TODO: Get rid of this collect
 }
