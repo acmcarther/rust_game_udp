@@ -1,4 +1,7 @@
-# Protocol level Headers
+# Game Udp
+[![Build Status](https://travis-ci.org/acmcarther/rust_game_udp.svg?branch=master)](https://travis-ci.org/acmcarther/rust_game_udp)
+
+## Protocol level Headers
 
 
 |App ID   |sequence #|curr ack #|past 32 acks|payload|
@@ -29,7 +32,7 @@ Send-Thread:
     - Past Acks (from updated_acks)
   - Send Payload
 
-# Application Headers (TBD)
+## Application Headers (TBD)
 |message type|payload|
 |:----------:|:-----:|
 |u8          |payload|

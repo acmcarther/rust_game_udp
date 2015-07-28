@@ -1,4 +1,9 @@
 language: rust
 sudo: false
-script:
-  - cargo test
+rust:
+  - stable
+  - beta
+  - nightly
+matrix:
+  allow_failure:
+    - rust: nightly
