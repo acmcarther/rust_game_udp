@@ -125,7 +125,7 @@ fn starts_with_marker(payload: RawPacket) -> Option<RawPacket> {
 
 fn increment_seq_number(seq_num_map: &mut HashMap<SocketAddr, u16>, addr: SocketAddr) -> u16 {
   let count = seq_num_map.entry(addr).or_insert(0);
-  *count += 1;
+  *count += count.wrapping_add(1);
   count.clone()
 }
 
