@@ -1,4 +1,3 @@
-#![feature(convert)]
 extern crate byteorder;
 extern crate tap;
 extern crate time;
@@ -160,7 +159,7 @@ fn deliver_packet(
       .map(|(payload, ack_num, ack_field)| payload.add_acks(ack_num, ack_field))
       .tap(|final_payload| send_attempted_tx.send((final_payload.clone(), PreciseTime::now(), prior_attempts)))
       .map(|packet| packet.serialize(UDP_MARKER))
-      .map(|raw_payload: RawPacket| send_socket.send_to(raw_payload.bytes.as_slice(), raw_payload.addr))
+      .map(|raw_payload: RawPacket| send_socket.send_to(&raw_payload.bytes[0..raw_payload.bytes.len()], raw_payload.addr))
       .map(|send_res| send_res.map_err(socket_send_err));
 }
 
