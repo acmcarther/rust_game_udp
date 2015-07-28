@@ -199,8 +199,8 @@ mod packet_types {
       let marker = &[1, 2, 3, 4];
       let packet = SequencedAckedPacket {
         addr: dummy_socket_addr(),
-        seq_num: 5,
-        ack_num: 23,
+        seq_num: 300,
+        ack_num: 600,
         ack_field: 111111111,
         bytes: vec![1, 2, 3, 4, 5]
       };
@@ -209,8 +209,8 @@ mod packet_types {
 
       let expected_bytes: Vec<u8> = vec![
         1, 2, 3, 4,       // Marker
-        0, 5,             // Sequence Num
-        0, 23,            // Ack Num
+        1, 44,            // Sequence Num
+        2, 88,            // Ack Num
         6, 159, 107, 199, // Ack Field
         1, 2, 3, 4, 5     // Payload
       ];
