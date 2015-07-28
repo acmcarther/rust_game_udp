@@ -88,20 +88,16 @@ pub fn start_network(addr: SocketAddr) -> Network {
       notify_dropped_packets(&mut packets_awaiting_ack, &dropped_packet_tx);
       add_sent_packets_to_ack_waiting(&send_attempted_rx, &mut packets_awaiting_ack);
 
-      let payload_result = recv_socket.recv_from(&mut buf)
+      let _ = recv_socket.recv_from(&mut buf)
         .map_err(socket_recv_err)
         .map(|(_, socket_addr)| RawPacket {addr: socket_addr, bytes: buf.to_vec()})
-        .map(starts_with_marker);
-
-      let _ = payload_result.map(|possible_payload| {
-        possible_payload
-          .map(|packet| packet.strip_marker())
-          .map(|packet| packet.strip_sequence())
-          .map(|packet| packet.strip_acks())
-          .tap(|packet| delete_acked_packets(&packet, &mut packets_awaiting_ack))
-          .tap(|packet| received_packet_tx.send((packet.addr, packet.seq_num)))
-          .map(|packet| recv_tx.send(Packet {addr: packet.addr, bytes: packet.bytes} ))
-      });
+        .ok()
+        .and_then(|packet| packet.strip_marker(UDP_MARKER))
+        .map(|packet| packet.strip_sequence())
+        .map(|packet| packet.strip_acks())
+        .tap(|packet| delete_acked_packets(&packet, &mut packets_awaiting_ack))
+        .tap(|packet| received_packet_tx.send((packet.addr, packet.seq_num)))
+        .map(|packet| recv_tx.send(Packet {addr: packet.addr, bytes: packet.bytes} ));
     }
   });
   let io_handles = IOHandles { send_handle: send_handle, recv_handle: recv_handle };
@@ -115,13 +111,6 @@ fn update_acks(received_packet_rx: &Receiver<(SocketAddr, u16)>, ack_map: &mut H
     .collect::<Vec<()>>();    // TODO: Remove collect
 }
 
-fn starts_with_marker(payload: RawPacket) -> Option<RawPacket> {
-  if &payload.bytes[0..3] == UDP_MARKER {
-    Some(payload)
-  } else {
-    None
-  }
-}
 
 fn increment_seq_number(seq_num_map: &mut HashMap<SocketAddr, u16>, addr: SocketAddr) -> u16 {
   let count = seq_num_map.entry(addr).or_insert(0);
@@ -170,7 +159,7 @@ fn deliver_packet(
       })
       .map(|(payload, ack_num, ack_field)| payload.add_acks(ack_num, ack_field))
       .tap(|final_payload| send_attempted_tx.send((final_payload.clone(), PreciseTime::now(), prior_attempts)))
-      .map(|packet| packet.serialize())
+      .map(|packet| packet.serialize(UDP_MARKER))
       .map(|raw_payload: RawPacket| send_socket.send_to(raw_payload.bytes.as_slice(), raw_payload.addr))
       .map(|send_res| send_res.map_err(socket_send_err));
 }
