@@ -10,7 +10,8 @@ mod types {
 
   pub struct IOHandles {
     pub send_handle: JoinHandle<()>,
-    pub recv_handle: JoinHandle<()>
+    pub recv_handle: JoinHandle<()>,
+    pub direct_handle: JoinHandle<()>
   }
 
   pub struct Network {

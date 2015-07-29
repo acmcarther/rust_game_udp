@@ -6,6 +6,7 @@ authors = ["Alex McArther <acmcarther@gmail.com>"]
 [dependencies]
 time = "*"
 byteorder = "*"
+itertools = "*"
 
 [dependencies.tap]
 git = "https://github.com/acmcarther/rust_tap"
