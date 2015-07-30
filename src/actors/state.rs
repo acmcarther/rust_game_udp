@@ -31,7 +31,6 @@ mod state {
     pub thread_handle: JoinHandle<()>
   }
 
-  // TODO: test
   impl Director {
     pub fn new(socket_recv_rx: Receiver<SequencedAckedPacket>, socket_send_tx: Sender<SequencedAckedPacket>) -> Director {
       let (api_out_tx, api_out_rx) = channel();
@@ -73,6 +72,8 @@ mod state {
               final_payload
             })
             .foreach(|final_payload| {let _ = socket_send_tx.send(final_payload);});
+          // TODO: tune
+          thread::sleep_ms(1)
         }
       });
 
@@ -83,7 +84,7 @@ mod state {
       }
     }
   }
-  fn extract_dropped_packets(packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, PreciseTime, i32)>) -> Vec<PacketWithTries>{
+  pub fn extract_dropped_packets(packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, PreciseTime, i32)>) -> Vec<PacketWithTries>{
     let now = PreciseTime::now();
     // Notify send thread of dropped packets
     //   Get keys first to sate the borrow checker
@@ -107,7 +108,7 @@ mod state {
       .collect()
   }
 
-  fn delete_acked_packets(packet: &SequencedAckedPacket, packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, PreciseTime, i32)>) {
+  pub fn delete_acked_packets(packet: &SequencedAckedPacket, packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, PreciseTime, i32)>) {
     let ack_num = packet.ack_num;
     let ack_field = packet.ack_field;
     (0..32).map(|bit_idx| {
@@ -115,30 +116,61 @@ mod state {
       (bit_idx, 0 != ((1 << bit_idx) & ack_field))
     }).foreach(|(idx, was_acked)| {
       if was_acked {
-        packets_awaiting_ack.remove(&(packet.addr, ack_num - idx));
+        println!("DEBUG: Ack for {}", ack_num - (idx + 1));
+        packets_awaiting_ack.remove(&(packet.addr, ack_num - (idx + 1)));
       }
     });
 
+    println!("DEBUG: Ack for {}", ack_num);
     // Remove initial ack
     packets_awaiting_ack.remove(&(packet.addr, ack_num));
   }
 
-  fn increment_seq_number(seq_num_map: &mut HashMap<SocketAddr, u16>, addr: SocketAddr) -> u16 {
+  pub fn increment_seq_number(seq_num_map: &mut HashMap<SocketAddr, u16>, addr: SocketAddr) -> u16 {
     let count = seq_num_map.entry(addr).or_insert(0);
     *count += count.wrapping_add(1);
     count.clone()
   }
 
 
-  fn add_packet_to_waiting(packet: &SequencedAckedPacket, tries: i32, packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, PreciseTime, i32)>) {
+  pub fn add_packet_to_waiting(packet: &SequencedAckedPacket, tries: i32, packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, PreciseTime, i32)>) {
+    println!("DEBUG: Sent seq {}", packet.seq_num.clone());
     packets_awaiting_ack.insert(
       (packet.addr.clone(), packet.seq_num.clone()),
       (packet.clone(), PreciseTime::now(), tries + 1)
     );
   }
 
-  fn add_packet_to_ack_map(addr: SocketAddr, seq_num: u16, ack_map: &mut HashMap<SocketAddr, PeerAcks>) {
+  pub fn add_packet_to_ack_map(addr: SocketAddr, seq_num: u16, ack_map: &mut HashMap<SocketAddr, PeerAcks>) {
     let peer_acks = ack_map.entry(addr).or_insert(PeerAcks { ack_num: 0, ack_field: 0 });
     peer_acks.add_seq_num(seq_num); // TODO: Rename this so it doesn't sound like we're making a new packet
+  }
+
+
+  // TODO:
+  #[cfg(test)]
+  mod tests {
+    use super::{
+      extract_dropped_packets,
+      delete_acked_packets,
+      increment_seq_number,
+      add_packet_to_waiting,
+      add_packet_to_ack_map
+    };
+
+    fn extract_dropped_packets() {
+    }
+
+    fn delete_acked_packets() {
+    }
+
+    fn increment_seq_number() {
+    }
+
+    fn add_packet_to_waiting() {
+    }
+
+    fn add_packet_to_ack_map() {
+    }
   }
 }
