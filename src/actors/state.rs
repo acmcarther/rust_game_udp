@@ -93,7 +93,7 @@ mod state {
         .filter(|&(_, &(_, timestamp, _))| {
           let timestamp: SteadyTime = timestamp; // Compiler why?
           let time_elapsed: Duration = now - timestamp;
-          time_elapsed.num_seconds() > PACKET_DROP_TIME;
+          time_elapsed.num_seconds() > PACKET_DROP_TIME
         })
         .map(|(key, &(_, _, _))| {
           let key: &(SocketAddr, u16) = key; // Compiler why?
