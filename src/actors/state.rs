@@ -128,7 +128,7 @@ mod state {
 
   pub fn increment_seq_number(seq_num_map: &mut HashMap<SocketAddr, u16>, addr: SocketAddr) -> u16 {
     let count = seq_num_map.entry(addr).or_insert(0);
-    *count += count.wrapping_add(1);
+    *count = count.wrapping_add(1);
     count.clone()
   }
 
@@ -150,6 +150,9 @@ mod state {
   // TODO:
   #[cfg(test)]
   mod tests {
+    use std::net::SocketAddr;
+    use std::str::FromStr;
+  use std::collections::HashMap;
     use super::{
       extract_dropped_packets,
       delete_acked_packets,
@@ -158,19 +161,34 @@ mod state {
       add_packet_to_ack_map
     };
 
-    fn extract_dropped_packets() {
+    #[test]
+    fn extract_dropped_packets_test() {
     }
 
-    fn delete_acked_packets() {
+    #[test]
+    fn delete_acked_packets_test() {
     }
 
-    fn increment_seq_number() {
+    #[test]
+    fn increment_seq_number_test() {
+      let addr =  SocketAddr::from_str("127.0.0.1:54234").unwrap();
+      let mut seq_num_map = HashMap::new();
+      let result = increment_seq_number(&mut seq_num_map, addr.clone());
+      assert_eq!(result, 1);
+      let result = increment_seq_number(&mut seq_num_map, addr.clone());
+      assert_eq!(result, 2);
+      let result = increment_seq_number(&mut seq_num_map, addr.clone());
+      assert_eq!(result, 3);
+      seq_num_map.insert(addr.clone(), u16::max_value());
+      let result = increment_seq_number(&mut seq_num_map, addr.clone());
+      assert_eq!(result, 0);
     }
 
-    fn add_packet_to_waiting() {
+    #[test]
+    fn add_packet_to_waiting_test() {
     }
 
-    fn add_packet_to_ack_map() {
+    fn add_packet_to_ack_map_test() {
     }
   }
 }
