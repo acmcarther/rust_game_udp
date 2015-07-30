@@ -85,7 +85,7 @@ mod packet_types {
     }
   }
 
-  #[derive(Clone)]
+  #[derive(Clone, Debug)]
   pub struct SequencedAckedPacket {
     pub addr: SocketAddr,
     pub seq_num: u16,

@@ -21,9 +21,6 @@ use types::{
 
 use actors::{NetSender, NetReceiver, Director};
 
-type OwnAcks = (SocketAddr, u16, u32);
-type DroppedPacket = (SocketAddr, u16);
-
 pub fn start_network(addr: SocketAddr) -> Network {
 
   let send_socket =

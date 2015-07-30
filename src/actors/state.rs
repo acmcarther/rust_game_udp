@@ -31,7 +31,7 @@ mod state {
     pub thread_handle: JoinHandle<()>
   }
 
-  // TODO: Fix
+  // TODO: test
   impl Director {
     pub fn new(socket_recv_rx: Receiver<SequencedAckedPacket>, socket_send_tx: Sender<SequencedAckedPacket>) -> Director {
       let (api_out_tx, api_out_rx) = channel();
