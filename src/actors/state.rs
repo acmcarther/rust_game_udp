@@ -24,7 +24,6 @@ mod state {
   use helpers::try_recv_all;
   use itertools::Itertools;
 
-
   pub struct Director{
     pub api_out_rx: Receiver<Packet>,
     pub api_in_tx: Sender<Packet>,
@@ -116,7 +115,7 @@ mod state {
       (bit_idx, 0 != ((1 << bit_idx) & ack_field))
     }).foreach(|(idx, was_acked)| {
       if was_acked {
-        packets_awaiting_ack.remove(&(packet.addr, ack_num - (idx + 1)));
+        packets_awaiting_ack.remove(&(packet.addr, ack_num.wrapping_sub(idx + 1)));
       }
     });
 
@@ -163,6 +162,7 @@ mod state {
       MAX_RESEND_ATTEMPTS,
       PACKET_DROP_TIME,
     };
+    use itertools::Itertools;
 
     #[test]
     fn extract_dropped_packets_test() {
@@ -199,6 +199,51 @@ mod state {
 
     #[test]
     fn delete_acked_packets_test() {
+      println!("asdfaasdfsdf");
+      let addr =  SocketAddr::from_str("127.0.0.1:58234").unwrap();
+      let mut packets_awaiting_ack = HashMap::new();
+      (1..5).map(|idx: u16| {
+        SequencedAckedPacket {
+          addr: addr.clone(),
+          seq_num: idx.wrapping_sub(2),
+          ack_num: 2,
+          ack_field: 3,
+          bytes: vec![1]
+        }
+      }).foreach(|packet| {
+        packets_awaiting_ack.insert((packet.addr, packet.seq_num), (packet, SteadyTime::now(), 1));
+      });
+      assert_eq!(packets_awaiting_ack.keys().count(), 4);
+
+      let ack_packet = SequencedAckedPacket {
+          addr: addr.clone(),
+          seq_num: 1,
+          ack_num: 3,
+          ack_field: 0,
+          bytes: vec![1]
+      };
+      delete_acked_packets(&ack_packet, &mut packets_awaiting_ack);
+      assert_eq!(packets_awaiting_ack.keys().count(), 4);
+
+      let ack_packet = SequencedAckedPacket {
+        addr: addr.clone(),
+        seq_num: 1,
+        ack_num: 2,
+        ack_field: 0,
+        bytes: vec![1]
+      };
+      delete_acked_packets(&ack_packet, &mut packets_awaiting_ack);
+      assert_eq!(packets_awaiting_ack.keys().count(), 3);
+
+      let ack_packet = SequencedAckedPacket {
+        addr: addr.clone(),
+        seq_num: 1,
+        ack_num: 1,
+        ack_field: 0b11,
+        bytes: vec![1]
+      };
+      delete_acked_packets(&ack_packet, &mut packets_awaiting_ack);
+      assert_eq!(packets_awaiting_ack.keys().count(), 0);
     }
 
     #[test]
@@ -220,6 +265,7 @@ mod state {
     fn add_packet_to_waiting_test() {
     }
 
+    #[test]
     fn add_packet_to_ack_map_test() {
     }
   }
