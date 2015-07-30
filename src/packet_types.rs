@@ -85,7 +85,7 @@ mod packet_types {
     }
   }
 
-  #[derive(Clone, Debug)]
+  #[derive(Clone, Debug, PartialEq, Eq)]
   pub struct SequencedAckedPacket {
     pub addr: SocketAddr,
     pub seq_num: u16,
@@ -112,6 +112,7 @@ mod packet_types {
     }
   }
 
+  #[derive(Clone, Debug, PartialEq, Eq)]
   pub struct PacketWithTries {
     pub packet: SequencedAckedPacket,
     pub tries: i32

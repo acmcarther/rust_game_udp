@@ -8,7 +8,7 @@ mod state {
   use std::collections::HashMap;
   use std::thread;
   use std::thread::JoinHandle;
-  use time::{Duration, PreciseTime};
+  use time::{Duration, SteadyTime};
   use packet_types::{
     Packet,
     SequencedPacket,
@@ -84,16 +84,16 @@ mod state {
       }
     }
   }
-  pub fn extract_dropped_packets(packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, PreciseTime, i32)>) -> Vec<PacketWithTries>{
-    let now = PreciseTime::now();
+  pub fn extract_dropped_packets(packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, SteadyTime, i32)>) -> Vec<PacketWithTries>{
+    let now = SteadyTime::now();
     // Notify send thread of dropped packets
     //   Get keys first to sate the borrow checker
     let dropped_packet_keys: Vec<(SocketAddr, u16)> =
       packets_awaiting_ack.iter()
         .filter(|&(_, &(_, timestamp, _))| {
-          let timestamp: PreciseTime = timestamp; // Compiler why?
-          let time_elapsed: Duration = timestamp.to(now);
-          time_elapsed.num_seconds() > PACKET_DROP_TIME
+          let timestamp: SteadyTime = timestamp; // Compiler why?
+          let time_elapsed: Duration = now - timestamp;
+          time_elapsed.num_seconds() > PACKET_DROP_TIME;
         })
         .map(|(key, &(_, _, _))| {
           let key: &(SocketAddr, u16) = key; // Compiler why?
@@ -108,7 +108,7 @@ mod state {
       .collect()
   }
 
-  pub fn delete_acked_packets(packet: &SequencedAckedPacket, packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, PreciseTime, i32)>) {
+  pub fn delete_acked_packets(packet: &SequencedAckedPacket, packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, SteadyTime, i32)>) {
     let ack_num = packet.ack_num;
     let ack_field = packet.ack_field;
     (0..32).map(|bit_idx| {
@@ -116,12 +116,10 @@ mod state {
       (bit_idx, 0 != ((1 << bit_idx) & ack_field))
     }).foreach(|(idx, was_acked)| {
       if was_acked {
-        println!("DEBUG: Ack for {}", ack_num - (idx + 1));
         packets_awaiting_ack.remove(&(packet.addr, ack_num - (idx + 1)));
       }
     });
 
-    println!("DEBUG: Ack for {}", ack_num);
     // Remove initial ack
     packets_awaiting_ack.remove(&(packet.addr, ack_num));
   }
@@ -133,11 +131,10 @@ mod state {
   }
 
 
-  pub fn add_packet_to_waiting(packet: &SequencedAckedPacket, tries: i32, packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, PreciseTime, i32)>) {
-    println!("DEBUG: Sent seq {}", packet.seq_num.clone());
+  pub fn add_packet_to_waiting(packet: &SequencedAckedPacket, tries: i32, packets_awaiting_ack: &mut HashMap<(SocketAddr, u16), (SequencedAckedPacket, SteadyTime, i32)>) {
     packets_awaiting_ack.insert(
       (packet.addr.clone(), packet.seq_num.clone()),
-      (packet.clone(), PreciseTime::now(), tries + 1)
+      (packet.clone(), SteadyTime::now(), tries + 1)
     );
   }
 
@@ -152,7 +149,7 @@ mod state {
   mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
-  use std::collections::HashMap;
+    use std::collections::HashMap;
     use super::{
       extract_dropped_packets,
       delete_acked_packets,
@@ -160,9 +157,44 @@ mod state {
       add_packet_to_waiting,
       add_packet_to_ack_map
     };
+    use packet_types::SequencedAckedPacket;
+    use time::{SteadyTime, Duration};
+    use constants::{
+      MAX_RESEND_ATTEMPTS,
+      PACKET_DROP_TIME,
+    };
 
     #[test]
     fn extract_dropped_packets_test() {
+      let addr =  SocketAddr::from_str("127.0.0.1:54234").unwrap();
+      let mut packets_awaiting_ack = HashMap::new();
+
+      let dropped_packets = extract_dropped_packets(&mut packets_awaiting_ack);
+      assert_eq!(dropped_packets.len(), 0);
+
+      let not_dropped_packet = SequencedAckedPacket {
+        addr: addr.clone(),
+        seq_num: 1,
+        ack_num: 2,
+        ack_field: 3,
+        bytes: vec![1]
+      };
+      packets_awaiting_ack.insert((addr.clone(), 1), (not_dropped_packet.clone(), SteadyTime::now(), 2));
+      let dropped_packets = extract_dropped_packets(&mut packets_awaiting_ack);
+      assert_eq!(dropped_packets.len(), 0);
+
+      let dropped_packet = SequencedAckedPacket {
+        addr: addr.clone(),
+        seq_num: 2,
+        ack_num: 2,
+        ack_field: 3,
+        bytes: vec![1]
+      };
+      packets_awaiting_ack.insert((addr.clone(), 2), (dropped_packet.clone(), SteadyTime::now() - Duration::seconds(PACKET_DROP_TIME + 5), 1));
+      let dropped_packets = extract_dropped_packets(&mut packets_awaiting_ack);
+      assert_eq!(dropped_packets.len(), 1);
+      assert_eq!(dropped_packets[0].packet, dropped_packet);
+      assert_eq!(dropped_packets[0].tries, 1);
     }
 
     #[test]
