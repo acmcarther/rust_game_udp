@@ -72,7 +72,7 @@ mod state {
             })
             .foreach(|final_payload| {let _ = socket_send_tx.send(final_payload);});
           // TODO: tune
-          thread::sleep_ms(1)
+          thread::sleep_ms(5)
         }
       });
 
@@ -263,6 +263,7 @@ mod state {
 
     #[test]
     fn add_packet_to_waiting_test() {
+      
     }
 
     #[test]
