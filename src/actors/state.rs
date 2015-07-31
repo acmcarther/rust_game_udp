@@ -21,7 +21,6 @@ mod state {
   };
   use ack::PeerAcks;
 
-  use helpers::try_recv_all;
   use itertools::Itertools;
 
   pub struct Director{
@@ -39,41 +38,43 @@ mod state {
       let mut packets_awaiting_ack = HashMap::new();
 
       let thread_handle = thread::spawn (move || {
+        let mut last_time = SteadyTime::now();
         loop {
-          let recv_packets = try_recv_all(&socket_recv_rx);
-          let send_packets = try_recv_all(&api_in_rx);
-          let dropped_packets = extract_dropped_packets(&mut packets_awaiting_ack);
-
-          recv_packets.into_iter()
-            .map(|packet| {
+          select! {
+            result = socket_recv_rx.recv() => {
+              let packet = result.unwrap();
               delete_acked_packets(&packet, &mut packets_awaiting_ack);
               add_packet_to_ack_map(packet.addr.clone(), packet.seq_num.clone(), &mut ack_map);
-              packet
-            })
-            .foreach(|packet| {let _ = api_out_tx.send(Packet {addr: packet.addr, bytes: packet.bytes});});
-
-          dropped_packets.into_iter()
-            .filter(|dropped_packet| dropped_packet.tries < MAX_RESEND_ATTEMPTS)
-            .map(|dropped_packet| (dropped_packet.packet, dropped_packet.tries))
-            .map(|(packet, tries)| (Packet{addr:packet.addr, bytes: packet.bytes}, tries))
-            .chain(send_packets.into_iter().map(|packet| (packet, 0)))
-            .map(|(packet, tries): (Packet, i32)| {
-              let new_seq_num = increment_seq_number(&mut seq_num_map, packet.addr.clone());
-              (packet.add_sequence_number(new_seq_num), tries)
-            })
-            .map(|(packet, tries): (SequencedPacket, i32)| {
-              let default = PeerAcks {ack_num: 0, ack_field: 0}; // TODO: remove this when we dont need it
-              let ack_data = ack_map.get(&packet.addr).unwrap_or(&default);
-              (packet.add_acks(ack_data.ack_num, ack_data.ack_field), tries)
-            })
-            .map(|(final_payload, tries)| {
-              add_packet_to_waiting(&final_payload, tries, &mut packets_awaiting_ack);
-              final_payload
-            })
-            .foreach(|final_payload| {let _ = socket_send_tx.send(final_payload);});
-          // TODO: tune
-          thread::sleep_ms(5)
-        }
+              let _ = api_out_tx.send(Packet {addr: packet.addr, bytes: packet.bytes});
+            },
+            result = api_in_rx.recv() => {
+              let this_time = SteadyTime::now();
+              let dropped_packets = if (this_time - last_time).num_milliseconds() > 200 {
+                last_time = this_time;
+                extract_dropped_packets(&mut packets_awaiting_ack)
+              } else { Vec::new() };
+              dropped_packets.into_iter()
+                .filter(|dropped_packet| dropped_packet.tries < MAX_RESEND_ATTEMPTS)
+                .map(|dropped_packet| (dropped_packet.packet, dropped_packet.tries))
+                .map(|(packet, tries)| (Packet{addr: packet.addr, bytes: packet.bytes}, tries))
+                .chain(vec![result.unwrap()].into_iter().map(|packet| (packet, 0)))
+                .map(|(packet, tries): (Packet, i32)| {
+                  let new_seq_num = increment_seq_number(&mut seq_num_map, packet.addr.clone());
+                  (packet.add_sequence_number(new_seq_num), tries)
+                })
+                .map(|(packet, tries): (SequencedPacket, i32)| {
+                  let default = PeerAcks {ack_num: 0, ack_field: 0}; // TODO: remove this when we dont need it
+                  let ack_data = ack_map.get(&packet.addr).unwrap_or(&default);
+                  (packet.add_acks(ack_data.ack_num, ack_data.ack_field), tries)
+                })
+                .map(|(final_payload, tries)| {
+                  add_packet_to_waiting(&final_payload, tries, &mut packets_awaiting_ack);
+                  final_payload
+                })
+                .foreach(|final_payload| {let _ = socket_send_tx.send(final_payload);});
+            }
+            }
+          }
       });
 
       Director {

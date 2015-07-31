@@ -1,3 +1,4 @@
+#![feature(mpsc_select)]
 extern crate byteorder;
 extern crate tap;
 extern crate time;
